@@ -1570,11 +1570,11 @@ fun SettingsScreen(
                 headlineContent = {
                     Text(
                         if (channelUsername.isNotEmpty()) "Канал: $channelUsername"
-                        else "Читать избранное"
+                        else "Читаемый канал"
                     )
                 },
                 supportingContent = {
-                    Text("Укажите username канала (без @) или оставьте пустым для избранного")
+                    Text("Укажите username канала в телеграмме (без @) или оставьте пустым для избранного")
                 },
                 leadingContent = {
                     Icon(
