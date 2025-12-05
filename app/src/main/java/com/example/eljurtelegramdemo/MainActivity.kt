@@ -1634,14 +1634,11 @@ fun SettingsScreen(
                     )
                 },
                 trailingContent = {
-                    // УМНАЯ КНОПКА
                     if (telegramAuthorized.value) {
-                        // Если привязан - кнопка "Отвязать"
                         TextButton(onClick = { TelegramService.logout() }) {
                             Text("Отвязать")
                         }
                     } else {
-                        // Если не привязан - кнопка "Привязать"
                         TextButton(
                             onClick = {
                                 onNavigateToTelegramAuth()

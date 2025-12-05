@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object TelegramService {
 
-    // тут задается юзернейм канала, чата без @, если тут ничего не стоит то читается по умолчанию Избранное
+
     private const val TAG = "TelegramService"
     private var client: Client? = null
     private var appContext: Context? = null
