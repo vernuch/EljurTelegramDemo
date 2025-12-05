@@ -543,48 +543,69 @@ fun ScheduleScreen(db: AppDatabase) {
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(lessons) { lesson ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(
-                                modifier = Modifier.width(52.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = lesson.lessonNumber.toString(),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = "${lesson.startTime}\n${lesson.endTime}",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    lesson.subject,
-                                    style = MaterialTheme.typography.titleSmall
-                                )
-                                Text(
-                                    "Кабинет: ${lesson.room}",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                Text(
-                                    "Учитель: ${lesson.teacher}",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
+                    val showReplacementDemo = lesson.lessonNumber == 3
+
+                    LessonCard(
+                        lesson = lesson,
+                        showReplacementDemo = showReplacementDemo
+                    )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun LessonCard(
+    lesson: ScheduleEntity,
+    showReplacementDemo: Boolean = false
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.width(52.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = lesson.lessonNumber.toString(),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "${lesson.startTime}\n${lesson.endTime}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                if (showReplacementDemo) {
+                    Text(
+                        text = "Физика",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+
+                Text(
+                    lesson.subject,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    "Кабинет: ${lesson.room}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "Учитель: ${lesson.teacher}",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }

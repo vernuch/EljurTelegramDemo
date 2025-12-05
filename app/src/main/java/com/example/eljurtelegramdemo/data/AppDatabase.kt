@@ -144,10 +144,6 @@ interface NoteDao {
     suspend fun delete(note: NoteEntity)
 }
 
-/**
- * Вложения к заданиям: один TaskEntity может иметь несколько файлов.
- * Храним contentUri (String), чтобы потом открыть через ACTION_VIEW.
- */
 @Entity(tableName = "task_attachments")
 data class TaskAttachmentEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -199,7 +195,6 @@ abstract class AppDatabase : RoomDatabase() {
 object DemoDataInitializer {
 
     suspend fun ensureDemoData(db: AppDatabase) {
-        // Оставляем демо только для расписания и сообщений
         seedSchedule(db)
         seedMessages(db)
     }
@@ -221,8 +216,8 @@ object DemoDataInitializer {
                 subject = "Математика",
                 teacher = "Иванова И.И.",
                 room = "201",
-                startTime = "08:30",
-                endTime = "09:15"
+                startTime = "08:20",
+                endTime = "09:50"
             ),
             ScheduleEntity(
                 date = today,
@@ -230,8 +225,8 @@ object DemoDataInitializer {
                 subject = "Русский язык",
                 teacher = "Петрова А.А.",
                 room = "203",
-                startTime = "09:25",
-                endTime = "10:10"
+                startTime = "10:00",
+                endTime = "11:30"
             ),
             ScheduleEntity(
                 date = today,
@@ -239,8 +234,8 @@ object DemoDataInitializer {
                 subject = "Информатика",
                 teacher = "Сидоров В.В.",
                 room = "305",
-                startTime = "10:20",
-                endTime = "11:05"
+                startTime = "11:40",
+                endTime = "13:10"
             ),
             ScheduleEntity(
                 date = tomorrow,
@@ -248,8 +243,8 @@ object DemoDataInitializer {
                 subject = "Физика",
                 teacher = "Кузнецов К.К.",
                 room = "210",
-                startTime = "08:30",
-                endTime = "09:15"
+                startTime = "08:20",
+                endTime = "09:50"
             ),
             ScheduleEntity(
                 date = tomorrow,
@@ -257,8 +252,8 @@ object DemoDataInitializer {
                 subject = "Английский язык",
                 teacher = "Смирнова Е.Е.",
                 room = "204",
-                startTime = "09:25",
-                endTime = "10:10"
+                startTime = "10:00",
+                endTime = "11:30"
             )
         )
         dao.insertAll(lessons)
