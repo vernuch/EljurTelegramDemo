@@ -306,6 +306,7 @@ fun MainScaffold(
 
     var selectedTab by rememberSaveable { mutableStateOf(BottomTab.Schedule) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var openTelegramTab by rememberSaveable { mutableStateOf(false) }
 
     BackHandler {
         when {
@@ -343,7 +344,10 @@ fun MainScaffold(
                 },
                 actions = {
                     if (!showSettings) {
-                        IconButton(onClick = { showSettings = true }) {
+                        IconButton(onClick = {
+                            showSettings = true
+                            openTelegramTab = false
+                        }) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Настройки"
@@ -359,7 +363,10 @@ fun MainScaffold(
                     BottomTab.entries.forEach { tab ->
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            onClick = {
+                                selectedTab = tab
+                                openTelegramTab = false
+                            },
                             icon = {
                                 when (tab) {
                                     BottomTab.Schedule ->
@@ -388,14 +395,22 @@ fun MainScaffold(
                 SettingsScreen(
                     isDarkTheme = isDarkTheme,
                     onToggleTheme = onToggleTheme,
-                    onLogoutApp = onLogout
+                    onLogoutApp = onLogout,
+                    onNavigateToTelegramAuth = {
+                        showSettings = false
+                        selectedTab = BottomTab.Messages
+                        openTelegramTab = true
+                    }
                 )
             } else {
                 when (selectedTab) {
                     BottomTab.Schedule -> ScheduleScreen(db)
                     BottomTab.Tasks -> TasksScreen(db)
                     BottomTab.Attestation -> AttestationsScreen(db)
-                    BottomTab.Messages -> MessagesScreen(db)
+                    BottomTab.Messages -> MessagesScreen(
+                        db = db,
+                        openTelegramTab = openTelegramTab
+                    )
                 }
             }
         }
@@ -1193,8 +1208,13 @@ fun AddAttestationDialog(
 
 //Экран сообщений
 @Composable
-fun MessagesScreen(db: AppDatabase) {
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
+fun MessagesScreen(
+    db: AppDatabase,
+    openTelegramTab: Boolean = false
+) {
+    var selectedTab by rememberSaveable {
+        mutableStateOf(if (openTelegramTab) 1 else 0)
+    }
     val tabs = listOf("ЭлЖур", "ТГ", "Заметки")
 
     Column(
@@ -1496,12 +1516,12 @@ fun NotesTab(db: AppDatabase) {
 fun SettingsScreen(
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
-    onLogoutApp: () -> Unit
+    onLogoutApp: () -> Unit,
+    onNavigateToTelegramAuth: () -> Unit
 ) {
     val context = LocalContext.current
     val telegramAuthorized = remember { mutableStateOf(TelegramService.isAuthorized()) }
 
-    // Добавляем состояние для канала
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var channelUsername by rememberSaveable {
         mutableStateOf(prefs.getString(KEY_TELEGRAM_CHANNEL, "") ?: "")
@@ -1521,7 +1541,6 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Добавляем карточку для настройки канала
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -1546,7 +1565,6 @@ fun SettingsScreen(
             )
         }
 
-        // Остальные карточки (тема, Telegram статус, выход) остаются как были
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -1581,7 +1599,12 @@ fun SettingsScreen(
                     )
                 },
                 supportingContent = {
-                    Text("Связка с Telegram используется для чтения избранных сообщений.")
+                    Text(
+                        if (telegramAuthorized.value)
+                            "Связка с Telegram используется для чтения избранных сообщений."
+                        else
+                            "Нажмите чтобы подключить Telegram и читать избранные сообщения."
+                    )
                 },
                 leadingContent = {
                     Icon(
@@ -1590,8 +1613,21 @@ fun SettingsScreen(
                     )
                 },
                 trailingContent = {
-                    TextButton(onClick = { TelegramService.logout() }) {
-                        Text("Отвязать")
+                    // УМНАЯ КНОПКА
+                    if (telegramAuthorized.value) {
+                        // Если привязан - кнопка "Отвязать"
+                        TextButton(onClick = { TelegramService.logout() }) {
+                            Text("Отвязать")
+                        }
+                    } else {
+                        // Если не привязан - кнопка "Привязать"
+                        TextButton(
+                            onClick = {
+                                onNavigateToTelegramAuth()
+                            }
+                        ) {
+                            Text("Привязать")
+                        }
                     }
                 }
             )
@@ -1614,7 +1650,6 @@ fun SettingsScreen(
         }
     }
 
-    // Диалог для ввода username канала
     if (showChannelDialog) {
         AlertDialog(
             onDismissRequest = { showChannelDialog = false },
@@ -1639,11 +1674,9 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        // Сохраняем в SharedPreferences
                         prefs.edit {
                             putString(KEY_TELEGRAM_CHANNEL, channelUsername)
                         }
-                        // Устанавливаем в TelegramService
                         TelegramService.setCustomChannel(channelUsername)
                         showChannelDialog = false
                     }
