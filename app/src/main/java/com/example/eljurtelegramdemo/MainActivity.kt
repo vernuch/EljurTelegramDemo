@@ -45,6 +45,8 @@ import com.example.eljurtelegramdemo.telegram.TelegramService
 import com.example.eljurtelegramdemo.telegram.TelegramService.SavedMessage
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.Image
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
@@ -59,6 +61,8 @@ import androidx.core.net.toUri
 import com.example.eljurtelegramdemo.eljur.EljurAuthRemoteDataSource
 import com.example.eljurtelegramdemo.eljur.EljurConfig
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 
 private const val PREFS_NAME = "telegram_prefs"
 private const val KEY_TELEGRAM_CHANNEL = "telegram_channel"
@@ -155,6 +159,7 @@ fun LoginScreen(
     val context = LocalContext.current
     var login by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var isLoading by rememberSaveable { mutableStateOf(false) }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -205,8 +210,18 @@ fun LoginScreen(
                     onValueChange = { password = it },
                     label = { Text("Пароль ЭлЖур") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                contentDescription = if (passwordVisible) "Скрыть пароль" else "Показать пароль"
+                            )
+                        }
+                    }
                 )
+
 
                 if (errorText != null) {
                     Text(
@@ -1234,6 +1249,7 @@ fun TelegramMessagesTab() {
     var phone by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var isAuthorized by remember { mutableStateOf(TelegramService.isAuthorized()) }
     var authStage by remember { mutableStateOf(TelegramService.getAuthStage()) }
     var savedMessages by remember { mutableStateOf<List<SavedMessage>>(emptyList()) }
@@ -1288,7 +1304,16 @@ fun TelegramMessagesTab() {
                         onValueChange = { password = it },
                         label = { Text("Пароль Telegram") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = if (passwordVisible) "Скрыть пароль" else "Показать пароль"
+                                )
+                            }
+                        }
                     )
 
                     Button(
