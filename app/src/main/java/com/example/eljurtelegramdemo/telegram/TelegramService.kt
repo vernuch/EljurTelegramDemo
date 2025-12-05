@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 object TelegramService {
 
     // тут задается юзернейм канала, чата без @, если тут ничего не стоит то читается по умолчанию Избранное
-    private const val DEFAULT_PUBLIC_USERNAME = ""
     private const val TAG = "TelegramService"
     private var client: Client? = null
     private var appContext: Context? = null
@@ -20,6 +19,14 @@ object TelegramService {
     private var savedMessagesChatId: Long? = null
 
     enum class AuthStage { NONE, WAIT_PHONE, WAIT_CODE, WAIT_PASSWORD, READY }
+
+    private var customChannelUsername: String = ""
+
+    fun setCustomChannel(username: String) {
+        customChannelUsername = username.trim().removePrefix("@")
+    }
+
+    fun getCustomChannel(): String = customChannelUsername
 
     @Volatile
     private var authStage: AuthStage = AuthStage.NONE
@@ -81,12 +88,20 @@ object TelegramService {
     private fun fetchSavedMessagesChat() {
         val c = client ?: return
 
-        val username = DEFAULT_PUBLIC_USERNAME.trim().removePrefix("@")
+        // Используем кастомный канал, если он задан
+        val username = if (customChannelUsername.isNotEmpty()) {
+            customChannelUsername
+        } else {
+            // Если не задан - читаем избранное
+            ""
+        }
+
         if (username.isNotEmpty()) {
             c.send(TdApi.SearchPublicChat(username)) { res ->
                 if (res is TdApi.Chat) {
                     savedMessagesChatId = res.id
                 } else {
+                    // Если не нашли канал, возвращаемся к избранному
                     openSavedMessagesFallback(c)
                 }
             }
@@ -94,6 +109,7 @@ object TelegramService {
             openSavedMessagesFallback(c)
         }
     }
+
     private fun openSavedMessagesFallback(c: Client) {
         c.send(TdApi.GetMe()) { res ->
             if (res is TdApi.User) {

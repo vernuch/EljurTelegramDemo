@@ -58,12 +58,19 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import com.example.eljurtelegramdemo.eljur.EljurAuthRemoteDataSource
 import com.example.eljurtelegramdemo.eljur.EljurConfig
+import androidx.compose.material3.AlertDialog
+
+private const val PREFS_NAME = "telegram_prefs"
+private const val KEY_TELEGRAM_CHANNEL = "telegram_channel"
 
 class MainActivity : ComponentActivity() {
     private lateinit var db: AppDatabase
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
                TelegramService.init(applicationContext)
+        val telegramPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val savedChannel = telegramPrefs.getString(KEY_TELEGRAM_CHANNEL, "") ?: ""
+        TelegramService.setCustomChannel(savedChannel)
         db = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
@@ -1466,7 +1473,15 @@ fun SettingsScreen(
     onToggleTheme: () -> Unit,
     onLogoutApp: () -> Unit
 ) {
+    val context = LocalContext.current
     val telegramAuthorized = remember { mutableStateOf(TelegramService.isAuthorized()) }
+
+    // Добавляем состояние для канала
+    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    var channelUsername by rememberSaveable {
+        mutableStateOf(prefs.getString(KEY_TELEGRAM_CHANNEL, "") ?: "")
+    }
+    var showChannelDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1481,6 +1496,32 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Добавляем карточку для настройки канала
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            ListItem(
+                headlineContent = {
+                    Text(
+                        if (channelUsername.isNotEmpty()) "Канал: $channelUsername"
+                        else "Читать избранное"
+                    )
+                },
+                supportingContent = {
+                    Text("Укажите username канала (без @) или оставьте пустым для избранного")
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.ChatBubble,
+                        contentDescription = null
+                    )
+                },
+                modifier = Modifier.clickable { showChannelDialog = true }
+            )
+        }
+
+        // Остальные карточки (тема, Telegram статус, выход) остаются как были
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -1546,6 +1587,53 @@ fun SettingsScreen(
                 modifier = Modifier.clickable { onLogoutApp() }
             )
         }
+    }
+
+    // Диалог для ввода username канала
+    if (showChannelDialog) {
+        AlertDialog(
+            onDismissRequest = { showChannelDialog = false },
+            title = { Text("Настройка канала Telegram") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Введите username канала (без @) или оставьте пустым для чтения избранного")
+                    OutlinedTextField(
+                        value = channelUsername,
+                        onValueChange = { channelUsername = it },
+                        label = { Text("Username канала") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "Пример: news_channel (без @)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // Сохраняем в SharedPreferences
+                        prefs.edit {
+                            putString(KEY_TELEGRAM_CHANNEL, channelUsername)
+                        }
+                        // Устанавливаем в TelegramService
+                        TelegramService.setCustomChannel(channelUsername)
+                        showChannelDialog = false
+                    }
+                ) {
+                    Text("Сохранить")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showChannelDialog = false }
+                ) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
