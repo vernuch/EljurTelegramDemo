@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object TelegramService {
 
+    // тут задается юзернейм канала, чата без @, если тут ничего не стоит то читается по умолчанию Избранное
+    private const val DEFAULT_PUBLIC_USERNAME = ""
     private const val TAG = "TelegramService"
     private var client: Client? = null
     private var appContext: Context? = null
@@ -79,15 +81,27 @@ object TelegramService {
     private fun fetchSavedMessagesChat() {
         val c = client ?: return
 
+        val username = DEFAULT_PUBLIC_USERNAME.trim().removePrefix("@")
+        if (username.isNotEmpty()) {
+            c.send(TdApi.SearchPublicChat(username)) { res ->
+                if (res is TdApi.Chat) {
+                    savedMessagesChatId = res.id
+                } else {
+                    openSavedMessagesFallback(c)
+                }
+            }
+        } else {
+            openSavedMessagesFallback(c)
+        }
+    }
+    private fun openSavedMessagesFallback(c: Client) {
         c.send(TdApi.GetMe()) { res ->
             if (res is TdApi.User) {
                 c.send(TdApi.CreatePrivateChat(res.id, false)) { chatRes ->
                     if (chatRes is TdApi.Chat) {
                         savedMessagesChatId = chatRes.id
-                    } else {
                     }
                 }
-            } else {
             }
         }
     }
