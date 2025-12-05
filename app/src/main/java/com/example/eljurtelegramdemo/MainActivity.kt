@@ -439,21 +439,55 @@ fun ScheduleScreen(db: AppDatabase) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TextButton(
+                onClick = {
+                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    try {
+                        val date = sdf.parse(currentDate)
+                        if (date != null) {
+                            val calendar = Calendar.getInstance()
+                            calendar.time = date
+                            calendar.add(Calendar.DAY_OF_YEAR, -1)
+                            currentDate = sdf.format(calendar.time)
+                        }
+                    } catch (e: Exception) {
+                    }
+                }
+            ) {
+                Text("<", style = MaterialTheme.typography.headlineMedium)
+            }
+
+            Spacer(Modifier.width(8.dp))
+
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.clickable { showDatePicker = true }
             ) {
                 Text(
-                    text = "Расписание на",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
                     text = formatDateHuman(currentDate),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground
                 )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            TextButton(
+                onClick = {
+                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                    try {
+                        val date = sdf.parse(currentDate)
+                        if (date != null) {
+                            val calendar = Calendar.getInstance()
+                            calendar.time = date
+                            calendar.add(Calendar.DAY_OF_YEAR, 1)
+                            currentDate = sdf.format(calendar.time)
+                        }
+                    } catch (e: Exception) {
+                    }
+                }
+            ) {
+                Text(">", style = MaterialTheme.typography.headlineMedium)
             }
         }
 
