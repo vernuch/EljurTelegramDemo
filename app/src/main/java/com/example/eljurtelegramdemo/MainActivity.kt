@@ -45,6 +45,8 @@ import com.example.eljurtelegramdemo.telegram.TelegramService
 import com.example.eljurtelegramdemo.telegram.TelegramService.SavedMessage
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.layout.ContentScale
@@ -61,6 +63,7 @@ import androidx.core.net.toUri
 import com.example.eljurtelegramdemo.eljur.EljurAuthRemoteDataSource
 import com.example.eljurtelegramdemo.eljur.EljurConfig
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 
@@ -71,7 +74,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var db: AppDatabase
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-               TelegramService.init(applicationContext)
+        TelegramService.init(applicationContext)
         val telegramPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedChannel = telegramPrefs.getString(KEY_TELEGRAM_CHANNEL, "") ?: ""
         TelegramService.setCustomChannel(savedChannel)
@@ -82,16 +85,11 @@ class MainActivity : ComponentActivity() {
         )
             .fallbackToDestructiveMigration()
             .build()
-        val prefs = getSharedPreferences("eljur_prefs", Context.MODE_PRIVATE)
-        val alreadyLoggedIn = prefs.getBoolean("logged_in", false)
         lifecycleScope.launch {
             DemoDataInitializer.ensureDemoData(db)
         }
         setContent {
-            EljurApp(
-                db = db,
-                initialLoggedIn = alreadyLoggedIn
-            )
+            EljurApp(db = db)
         }
     }
 }
@@ -104,13 +102,15 @@ private enum class BottomTab(val label: String) {
 }
 
 @Composable
-fun EljurApp(
-    db: AppDatabase,
-    initialLoggedIn: Boolean
-) {
+fun EljurApp(db: AppDatabase) {
     val context = LocalContext.current
     var isDarkTheme by rememberSaveable { mutableStateOf(false) }
-    var isLoggedIn by rememberSaveable { mutableStateOf(initialLoggedIn) }
+    var isEljurLoggedIn by rememberSaveable {
+        mutableStateOf(
+            context.getSharedPreferences("eljur_prefs", Context.MODE_PRIVATE)
+                .getBoolean("eljur_logged_in", false)
+        )
+    }
 
     EljurTelegramDemoTheme(darkTheme = isDarkTheme) {
         Box(
@@ -126,168 +126,21 @@ fun EljurApp(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.background.copy(alpha = 0.90f)
             ) {
-                if (!isLoggedIn) {
-                    LoginScreen(
-                        onLogin = { _, _ ->
-                            val prefs = context.getSharedPreferences("eljur_prefs", Context.MODE_PRIVATE)
-                            prefs.edit { putBoolean("logged_in", true) }
-                            isLoggedIn = true
-                        }
-                    )
-                } else {
-                    MainScaffold(
-                        db = db,
-                        isDarkTheme = isDarkTheme,
-                        onToggleTheme = { isDarkTheme = !isDarkTheme },
-                        onLogout = {
-                            val prefs = context.getSharedPreferences("eljur_prefs", Context.MODE_PRIVATE)
-                            prefs.edit { putBoolean("logged_in", false) }
-                            isLoggedIn = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
 
-//экран логина
-@Composable
-fun LoginScreen(
-    onLogin: (login: String, password: String) -> Unit
-) {
-    val context = LocalContext.current
-    var login by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    var isLoading by rememberSaveable { mutableStateOf(false) }
-    var errorText by rememberSaveable { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    BackHandler {
-        (context as? Activity)?.finish()
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-            shape = MaterialTheme.shapes.large
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.School,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp)
-                )
-
-                Text(
-                    text = "Электронный дневник",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
-                OutlinedTextField(
-                    value = login,
-                    onValueChange = { login = it },
-                    label = { Text("Логин ЭлЖур") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Пароль ЭлЖур") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(
-                                imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                                contentDescription = if (passwordVisible) "Скрыть пароль" else "Показать пароль"
-                            )
-                        }
-                    }
-                )
-
-
-                if (errorText != null) {
-                    Text(
-                        text = errorText ?: "",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        errorText = null
-                        val trimmedLogin = login.trim()
-                        val trimmedPassword = password.trim()
-
-                        if (trimmedLogin.isBlank() || trimmedPassword.isBlank()) {
-                            errorText = "Введите логин и пароль"
-                            return@Button
-                        }
-
-                        if (EljurConfig.USE_ELJUR_API) {
-                            // Режим: авторизация через ЭлЖур
-                            scope.launch {
-                                isLoading = true
-                                val ok = EljurAuthRemoteDataSource.login(
-                                    trimmedLogin,
-                                    trimmedPassword
-                                )
-                                isLoading = false
-                                if (ok) {
-                                    onLogin(trimmedLogin, trimmedPassword)
-                                } else {
-                                    errorText = "Не удалось авторизоваться через ЭлЖур"
-                                }
-                            }
-                        } else {
-                            // Режим: локальный логин
-                            onLogin(trimmedLogin, trimmedPassword)
-                        }
+                MainScaffold(
+                    db = db,
+                    isDarkTheme = isDarkTheme,
+                    isEljurLoggedIn = isEljurLoggedIn,
+                    onToggleTheme = { isDarkTheme = !isDarkTheme },
+                    onEljurLoginChange = { loggedIn ->
+                        isEljurLoggedIn = loggedIn
+                        context.getSharedPreferences("eljur_prefs", Context.MODE_PRIVATE)
+                            .edit { putBoolean("eljur_logged_in", loggedIn) }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading
-                ) {
-                    if (isLoading && EljurConfig.USE_ELJUR_API) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text("Войти")
+                    onLogout = {
+                        (context as? Activity)?.finish()
                     }
-                }
-
-                if (EljurConfig.USE_ELJUR_API) {
-                    Text(
-                        text = "Используется авторизация через ЭлЖур API",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                } else {
-                    Text(
-                        text = "Сейчас используется локальная авторизация",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
-                }
+                )
             }
         }
     }
@@ -298,7 +151,9 @@ fun LoginScreen(
 fun MainScaffold(
     db: AppDatabase,
     isDarkTheme: Boolean,
+    isEljurLoggedIn: Boolean,
     onToggleTheme: () -> Unit,
+    onEljurLoginChange: (Boolean) -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -307,6 +162,7 @@ fun MainScaffold(
     var selectedTab by rememberSaveable { mutableStateOf(BottomTab.Schedule) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var openTelegramTab by rememberSaveable { mutableStateOf(false) }
+    var showEljurLoginDialog by rememberSaveable { mutableStateOf(false) }
 
     BackHandler {
         when {
@@ -394,12 +250,19 @@ fun MainScaffold(
             if (showSettings) {
                 SettingsScreen(
                     isDarkTheme = isDarkTheme,
+                    isEljurLoggedIn = isEljurLoggedIn,
                     onToggleTheme = onToggleTheme,
                     onLogoutApp = onLogout,
                     onNavigateToTelegramAuth = {
                         showSettings = false
                         selectedTab = BottomTab.Messages
                         openTelegramTab = true
+                    },
+                    onShowEljurLogin = {
+                        showEljurLoginDialog = true
+                    },
+                    onEljurLogout = {
+                        onEljurLoginChange(false)
                     }
                 )
             } else {
@@ -415,6 +278,19 @@ fun MainScaffold(
             }
         }
     }
+
+    if (showEljurLoginDialog) {
+        EljurLoginDialog(
+            onLogin = { login, password ->
+                onEljurLoginChange(true)
+                showEljurLoginDialog = false
+                Toast.makeText(context, "ЭлЖур успешно подключен", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = {
+                showEljurLoginDialog = false
+            }
+        )
+    }
 }
 
 //Экран расписания
@@ -426,6 +302,10 @@ fun ScheduleScreen(db: AppDatabase) {
 
     var currentDate by rememberSaveable { mutableStateOf(today) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
+
+    val weekDates = remember(currentDate) {
+        getWeekDates(currentDate)
+    }
 
     //сейчас ничего не делае пока USE_ELJUR_API = false
     LaunchedEffect(currentDate) {
@@ -470,6 +350,16 @@ fun ScheduleScreen(db: AppDatabase) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
+
+        WeekSelector(
+            weekDates = weekDates,
+            currentDate = currentDate,
+            onDateSelected = { dateStr ->
+                currentDate = dateStr
+            }
+        )
+
+        Spacer(Modifier.height(16.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth(),
@@ -551,6 +441,71 @@ fun ScheduleScreen(db: AppDatabase) {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun WeekSelector(
+    weekDates: List<WeekDate>,
+    currentDate: String,
+    onDateSelected: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp), // Уменьшаем высоту
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            weekDates.forEach { weekDate ->
+                WeekDayItem(
+                    weekDate = weekDate,
+                    isSelected = weekDate.dateString == currentDate,
+                    onClick = { onDateSelected(weekDate.dateString) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun WeekDayItem(
+    weekDate: WeekDate,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(36.dp)
+            .clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = weekDate.dayOfMonth,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(Modifier.height(4.dp))
+
+        if (weekDate.isToday) {
+            Box(
+                modifier = Modifier
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        } else {
+            Spacer(Modifier.height(4.dp))
         }
     }
 }
@@ -1033,10 +988,43 @@ fun AddTaskDialog(
 //Экран аттестаций
 @Composable
 fun AttestationsScreen(db: AppDatabase) {
-    val items by db.attestationDao().getAll().collectAsState(initial = emptyList())
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val items by db.attestationDao().getAll().collectAsState(initial = emptyList())
+    val attachmentsDao = db.attestationAttachmentDao()
+    val allAttachments by attachmentsDao.getAll().collectAsState(initial = emptyList())
+
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var attestationIdForPicker by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    var dialogAttestationId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var dialogAttestationTitle by rememberSaveable { mutableStateOf("") }
+
+    val pickFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val attestationId = attestationIdForPicker
+        if (uri != null && attestationId != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+            }
+            val name = getFileNameFromUri(context, uri) ?: "Файл"
+            scope.launch {
+                attachmentsDao.insert(
+                    AttestationAttachmentEntity(
+                        attestationId = attestationId,
+                        uri = uri.toString(),
+                        name = name
+                    )
+                )
+            }
+        }
+    }
 
     if (showAddDialog) {
         AddAttestationDialog(
@@ -1056,6 +1044,36 @@ fun AttestationsScreen(db: AppDatabase) {
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false }
+        )
+    }
+
+    if (dialogAttestationId != null) {
+        val currentAttestationId = dialogAttestationId!!
+        val attestationAttachments = allAttachments.filter { it.attestationId == currentAttestationId }
+
+        AttestationAttachmentsDialog(
+            title = dialogAttestationTitle,
+            attachments = attestationAttachments,
+            onOpenAttachment = { att ->
+                val uri = att.uri.toUri()
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "*/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                try {
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Не удалось открыть файл", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDeleteAttachment = { att ->
+                scope.launch {
+                    attachmentsDao.delete(att)
+                }
+            },
+            onDismiss = {
+                dialogAttestationId = null
+            }
         )
     }
 
@@ -1083,56 +1101,151 @@ fun AttestationsScreen(db: AppDatabase) {
                 )
             }
         }
+
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(items) { att ->
+                val attestationAttachments = allAttachments.filter { it.attestationId == att.id }
+                val attachmentsCount = attestationAttachments.size
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "${att.subject} — ${att.type}",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text("Дата: ${att.date}", style = MaterialTheme.typography.bodySmall)
-                            Text("Кабинет: ${att.room}", style = MaterialTheme.typography.bodySmall)
-                            Text("Время: ${att.time}", style = MaterialTheme.typography.bodySmall)
-                            if (att.description.isNotBlank()) {
-                                Spacer(Modifier.height(4.dp))
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    att.description,
-                                    style = MaterialTheme.typography.bodySmall
+                                    "${att.subject} — ${att.type}",
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("Дата: ${att.date}", style = MaterialTheme.typography.bodySmall)
+                                Text("Кабинет: ${att.room}", style = MaterialTheme.typography.bodySmall)
+                                Text("Время: ${att.time}", style = MaterialTheme.typography.bodySmall)
+                                if (att.description.isNotBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        att.description,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        // Удаляем вложения аттестации
+                                        attachmentsDao.deleteForAttestation(att.id)
+                                        db.attestationDao().delete(att)
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Удалить мероприятие"
                                 )
                             }
                         }
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    db.attestationDao().delete(att)
-                                }
-                            }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Удалить мероприятие"
-                            )
+                            TextButton(
+                                onClick = {
+                                    dialogAttestationId = att.id
+                                    dialogAttestationTitle = "${att.subject}: ${att.type}"
+                                }
+                            ) {
+                                Text(
+                                    text = if (attachmentsCount == 0)
+                                        "Файлы: нет"
+                                    else
+                                        "Файлы: $attachmentsCount"
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    attestationIdForPicker = att.id
+                                    pickFileLauncher.launch(arrayOf("*/*"))
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AttachFile,
+                                    contentDescription = "Прикрепить файл"
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun AttestationAttachmentsDialog(
+    title: String,
+    attachments: List<AttestationAttachmentEntity>,
+    onOpenAttachment: (AttestationAttachmentEntity) -> Unit,
+    onDeleteAttachment: (AttestationAttachmentEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        },
+        title = { Text("Файлы: $title") },
+        text = {
+            if (attachments.isEmpty()) {
+                Text("К этому мероприятию пока нет прикреплённых файлов.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(attachments) { att ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    att.name ?: "Файл",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            Row {
+                                TextButton(onClick = { onOpenAttachment(att) }) {
+                                    Text("Открыть")
+                                }
+                                IconButton(onClick = { onDeleteAttachment(att) }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Удалить файл"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -1294,6 +1407,7 @@ fun TelegramMessagesTab() {
     var isAuthorized by remember { mutableStateOf(TelegramService.isAuthorized()) }
     var authStage by remember { mutableStateOf(TelegramService.getAuthStage()) }
     var savedMessages by remember { mutableStateOf<List<SavedMessage>>(emptyList()) }
+
     LaunchedEffect(Unit) {
         while (true) {
             val currentAuth = TelegramService.isAuthorized()
@@ -1433,6 +1547,34 @@ fun TelegramMessagesTab() {
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {
                         Text(msg.text, style = MaterialTheme.typography.bodyMedium)
+
+                        if (msg.hasPhoto || msg.hasVideo || msg.hasDocument) {
+                            Spacer(Modifier.height(4.dp))
+
+                            val fileInfo = buildString {
+                                if (msg.hasPhoto) append("📷 Фото")
+                                if (msg.hasVideo) {
+                                    if (isNotEmpty()) append(", ")
+                                    append("🎥 Видео")
+                                }
+                                if (msg.hasDocument) {
+                                    if (isNotEmpty()) append(", ")
+                                    append("📄 Документ")
+                                }
+
+                                if (msg.fileSize > 0) {
+                                    append(" (")
+                                    append(formatFileSize(msg.fileSize))
+                                    append(")")
+                                }
+                            }
+
+                            Text(
+                                text = fileInfo,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
                     }
                 }
             }
@@ -1536,9 +1678,12 @@ fun NotesTab(db: AppDatabase) {
 @Composable
 fun SettingsScreen(
     isDarkTheme: Boolean,
+    isEljurLoggedIn: Boolean,
     onToggleTheme: () -> Unit,
     onLogoutApp: () -> Unit,
-    onNavigateToTelegramAuth: () -> Unit
+    onNavigateToTelegramAuth: () -> Unit,
+    onShowEljurLogin: () -> Unit,
+    onEljurLogout: () -> Unit
 ) {
     val context = LocalContext.current
     val telegramAuthorized = remember { mutableStateOf(TelegramService.isAuthorized()) }
@@ -1548,6 +1693,9 @@ fun SettingsScreen(
         mutableStateOf(prefs.getString(KEY_TELEGRAM_CHANNEL, "") ?: "")
     }
     var showChannelDialog by rememberSaveable { mutableStateOf(false) }
+
+    var showManualScheduleDialog by rememberSaveable { mutableStateOf(false) }
+
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1569,6 +1717,44 @@ fun SettingsScreen(
             ListItem(
                 headlineContent = {
                     Text(
+                        if (isEljurLoggedIn) "ЭлЖур подключен"
+                        else "Авторизация ЭлЖур"
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        if (isEljurLoggedIn)
+                            "Ваш аккаунт ЭлЖур привязан"
+                        else
+                            "Войдите в аккаунт ЭлЖур для загрузки данных"
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.School,
+                        contentDescription = null
+                    )
+                },
+                trailingContent = {
+                    if (isEljurLoggedIn) {
+                        TextButton(onClick = onEljurLogout) {
+                            Text("Отвязать")
+                        }
+                    } else {
+                        TextButton(onClick = onShowEljurLogin) {
+                            Text("Войти")
+                        }
+                    }
+                }
+            )
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            ListItem(
+                headlineContent = {
+                    Text(
                         if (channelUsername.isNotEmpty()) "Канал: $channelUsername"
                         else "Читаемый канал"
                     )
@@ -1583,28 +1769,6 @@ fun SettingsScreen(
                     )
                 },
                 modifier = Modifier.clickable { showChannelDialog = true }
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            ListItem(
-                headlineContent = { Text("Тёмная тема") },
-                supportingContent = { Text("Переключить светлую/тёмную тему") },
-                leadingContent = {
-                    Icon(
-                        imageVector = if (isDarkTheme) Icons.Default.DarkMode else Icons.Default.WbSunny,
-                        contentDescription = null
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = isDarkTheme,
-                        onCheckedChange = { onToggleTheme() }
-                    )
-                }
             )
         }
 
@@ -1639,11 +1803,7 @@ fun SettingsScreen(
                             Text("Отвязать")
                         }
                     } else {
-                        TextButton(
-                            onClick = {
-                                onNavigateToTelegramAuth()
-                            }
-                        ) {
+                        TextButton(onClick = { onNavigateToTelegramAuth() }) {
                             Text("Привязать")
                         }
                     }
@@ -1656,7 +1816,29 @@ fun SettingsScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             ListItem(
-                headlineContent = { Text("Выйти из аккаунта") },
+                headlineContent = { Text("Тёмная тема") },
+                supportingContent = { Text("Переключить светлую/тёмную тему") },
+                leadingContent = {
+                    Icon(
+                        imageVector = if (isDarkTheme) Icons.Default.DarkMode else Icons.Default.WbSunny,
+                        contentDescription = null
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = isDarkTheme,
+                        onCheckedChange = { onToggleTheme() }
+                    )
+                }
+            )
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            ListItem(
+                headlineContent = { Text("Выйти из приложения") },
                 leadingContent = {
                     Icon(
                         imageVector = Icons.Default.Logout,
@@ -1713,6 +1895,123 @@ fun SettingsScreen(
     }
 }
 
+@Composable
+fun EljurLoginDialog(
+    onLogin: (login: String, password: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var login by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var isLoading by rememberSaveable { mutableStateOf(false) }
+    var errorText by rememberSaveable { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(
+                onClick = {
+                    errorText = null
+                    val trimmedLogin = login.trim()
+                    val trimmedPassword = password.trim()
+
+                    if (trimmedLogin.isBlank() || trimmedPassword.isBlank()) {
+                        errorText = "Введите логин и пароль"
+                        return@Button
+                    }
+
+                    if (EljurConfig.USE_ELJUR_API) {
+                        // Режим: авторизация через ЭлЖур API
+                        scope.launch {
+                            isLoading = true
+                            val ok = EljurAuthRemoteDataSource.login(
+                                trimmedLogin,
+                                trimmedPassword
+                            )
+                            isLoading = false
+                            if (ok) {
+                                onLogin(trimmedLogin, trimmedPassword)
+                            } else {
+                                errorText = "Не удалось авторизоваться через ЭлЖур"
+                            }
+                        }
+                    } else {
+                        // Режим: локальный логин (демо)
+                        onLogin(trimmedLogin, trimmedPassword)
+                    }
+                },
+                enabled = !isLoading
+            ) {
+                if (isLoading && EljurConfig.USE_ELJUR_API) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Войти")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена")
+            }
+        },
+        title = { Text("Вход в ЭлЖур") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = login,
+                    onValueChange = { login = it },
+                    label = { Text("Логин ЭлЖур") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Пароль ЭлЖур") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                contentDescription = if (passwordVisible) "Скрыть пароль" else "Показать пароль"
+                            )
+                        }
+                    }
+                )
+
+                if (errorText != null) {
+                    Text(
+                        text = errorText ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                if (EljurConfig.USE_ELJUR_API) {
+                    Text(
+                        text = "Используется авторизация через ЭлЖур API",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                } else {
+                    Text(
+                        text = "Сейчас используется локальная авторизация (демо-режим)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+    )
+}
+
 private fun todayString(): String {
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     return sdf.format(Date())
@@ -1761,4 +2060,61 @@ private fun getFileNameFromUri(context: Context, uri: Uri): String? {
     } catch (e: Exception) {
         null
     }
+}
+
+private fun formatFileSize(size: Long): String {
+    return when {
+        size < 1024 -> "$size Б"
+        size < 1024 * 1024 -> "${size / 1024} КБ"
+        else -> "${size / (1024 * 1024)} МБ"
+    }
+}
+
+data class WeekDate(
+    val dateString: String,
+    val dayOfWeekShort: String,
+    val dayOfMonth: String,
+    val isToday: Boolean = false
+)
+
+private fun getWeekDates(selectedDate: String): List<WeekDate> {
+    val dates = mutableListOf<WeekDate>()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val daySdf = SimpleDateFormat("dd", Locale.getDefault())
+    val weekDaySdf = SimpleDateFormat("E", Locale.getDefault())
+
+    try {
+        val baseDate = sdf.parse(selectedDate)
+        if (baseDate != null) {
+            val calendar = Calendar.getInstance()
+            calendar.time = baseDate
+
+            calendar.firstDayOfWeek = Calendar.MONDAY
+            calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+
+            for (i in 0 until 7) {
+                val currentDate = calendar.time
+                val dateStr = sdf.format(currentDate)
+                val dayOfMonth = daySdf.format(currentDate)
+                val dayOfWeek = weekDaySdf.format(currentDate)
+
+                val isToday = dateStr == todayString()
+
+                dates.add(
+                    WeekDate(
+                        dateString = dateStr,
+                        dayOfWeekShort = dayOfWeek,
+                        dayOfMonth = dayOfMonth,
+                        isToday = isToday
+                    )
+                )
+
+                calendar.add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
+    return dates
 }

@@ -11,7 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object TelegramService {
 
-
     private const val TAG = "TelegramService"
     private var client: Client? = null
     private var appContext: Context? = null
@@ -46,6 +45,10 @@ object TelegramService {
         val id: Long,
         val text: String,
         val date: Int,
+        val hasPhoto: Boolean = false,
+        val hasVideo: Boolean = false,
+        val hasDocument: Boolean = false,
+        val fileSize: Long = 0
     )
 
     fun init(context: Context) {
@@ -219,6 +222,7 @@ object TelegramService {
     }
 
     fun isAuthorized(): Boolean = isAuthorized.get()
+
     fun loadSavedMessages(
         limit: Int = 50,
         onResult: (List<SavedMessage>) -> Unit
@@ -248,16 +252,59 @@ object TelegramService {
         ) { res ->
             if (res is TdApi.Messages) {
                 val list = res.messages.mapNotNull { msg ->
-                    val text = when (val content = msg.content) {
-                        is TdApi.MessageText -> content.text.text
-                        else -> null
-                    }
-                    text?.let {
-                        SavedMessage(
-                            id = msg.id,
-                            text = it,
-                            date = msg.date
-                        )
+                    when (val content = msg.content) {
+                        is TdApi.MessageText -> {
+                            SavedMessage(
+                                id = msg.id,
+                                text = content.text.text,
+                                date = msg.date
+                            )
+                        }
+                        is TdApi.MessagePhoto -> {
+                            val photo = content.photo
+                            val caption = content.caption?.text ?: ""
+                            val fileSize = photo.sizes.maxByOrNull { it.photo.size }?.photo?.size ?: 0
+
+                            SavedMessage(
+                                id = msg.id,
+                                text = if (caption.isNotEmpty()) caption else "Фотография",
+                                date = msg.date,
+                                hasPhoto = true,
+                                fileSize = fileSize
+                            )
+                        }
+                        is TdApi.MessageVideo -> {
+                            val video = content.video
+                            val caption = content.caption?.text ?: ""
+
+                            SavedMessage(
+                                id = msg.id,
+                                text = if (caption.isNotEmpty()) caption else "Видео",
+                                date = msg.date,
+                                hasVideo = true,
+                                fileSize = video.video.size
+                            )
+                        }
+                        is TdApi.MessageDocument -> {
+                            val doc = content.document
+                            val caption = content.caption?.text ?: doc.fileName
+
+                            SavedMessage(
+                                id = msg.id,
+                                text = if (caption.isNotEmpty()) caption else "Документ",
+                                date = msg.date,
+                                hasDocument = true,
+                                fileSize = doc.document.size
+                            )
+                        }
+                        else -> {
+                            // Для других типов сообщений создаем текстовое сообщение с описанием
+                            SavedMessage(
+                                id = msg.id,
+                                text = "[Сообщение с медиа]",
+                                date = msg.date
+                            )
+                        }
                     }
                 }
                 onMain { onResult(list) }

@@ -171,6 +171,36 @@ interface TaskAttachmentDao {
     suspend fun deleteForTask(taskId: Long)
 }
 
+@Entity(tableName = "attestation_attachments")
+data class AttestationAttachmentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val attestationId: Long,
+    val uri: String,
+    val name: String?,
+    val addedAt: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface AttestationAttachmentDao {
+    @Query("SELECT * FROM attestation_attachments ORDER BY addedAt DESC")
+    fun getAll(): Flow<List<AttestationAttachmentEntity>>
+
+    @Query("SELECT * FROM attestation_attachments WHERE attestationId = :attestationId ORDER BY addedAt DESC")
+    fun getForAttestation(attestationId: Long): Flow<List<AttestationAttachmentEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(att: AttestationAttachmentEntity)
+
+    @Delete
+    suspend fun delete(att: AttestationAttachmentEntity)
+
+    @Query("DELETE FROM attestation_attachments WHERE attestationId = :attestationId")
+    suspend fun deleteForAttestation(attestationId: Long)
+}
+
+
+
+
 @Database(
     entities = [
         ScheduleEntity::class,
@@ -178,9 +208,10 @@ interface TaskAttachmentDao {
         AttestationEntity::class,
         EljurMessageEntity::class,
         NoteEntity::class,
-        TaskAttachmentEntity::class
+        TaskAttachmentEntity::class,
+        AttestationAttachmentEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -190,6 +221,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun eljurMessageDao(): EljurMessageDao
     abstract fun noteDao(): NoteDao
     abstract fun taskAttachmentDao(): TaskAttachmentDao
+    abstract fun attestationAttachmentDao(): AttestationAttachmentDao
 }
 
 object DemoDataInitializer {
