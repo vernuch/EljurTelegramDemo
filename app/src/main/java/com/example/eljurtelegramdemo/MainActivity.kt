@@ -47,6 +47,9 @@ import kotlinx.coroutines.delay
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.layout.ContentScale
@@ -66,12 +69,21 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.Job
+import androidx.compose.runtime.mutableIntStateOf
 
 private const val PREFS_NAME = "telegram_prefs"
 private const val KEY_TELEGRAM_CHANNEL = "telegram_channel"
 
 class MainActivity : ComponentActivity() {
     private lateinit var db: AppDatabase
+
+    private val schedulePrefs by lazy {
+        getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TelegramService.init(applicationContext)
@@ -85,15 +97,43 @@ class MainActivity : ComponentActivity() {
         )
             .fallbackToDestructiveMigration()
             .build()
+
+        val schedulePrefs = getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        schedulePrefs.edit {
+            putString("current_date", today)
+        }
+
         lifecycleScope.launch {
             DemoDataInitializer.ensureDemoData(db)
+
+            val bellSchedule = db.bellScheduleDao().getAll().firstOrNull()
+            if (bellSchedule.isNullOrEmpty()) {
+                val defaultSchedule = (1..8).map { number ->
+                    val startHour = 8 + (number - 1) * 2
+                    BellScheduleEntity(
+                        lessonNumber = number,
+                        startTime = String.format("%02d:00", startHour),
+                        endTime = String.format("%02d:50", startHour),
+                        isActive = number <= 6
+                    )
+                }
+                db.bellScheduleDao().insertAll(defaultSchedule)
+            }
+
+            val hasSchedule = db.scheduleDao().getCount() > 0
+            if (!hasSchedule) {
+                regenerateFullSchedule(db)
+            }
         }
+
         setContent {
             EljurApp(db = db)
         }
     }
 }
 
+// нижний бар
 private enum class BottomTab(val label: String) {
     Schedule("Расписание"),
     Tasks("Задания"),
@@ -101,6 +141,7 @@ private enum class BottomTab(val label: String) {
     Messages("Сообщения")
 }
 
+// связь с элжуром
 @Composable
 fun EljurApp(db: AppDatabase) {
     val context = LocalContext.current
@@ -146,6 +187,7 @@ fun EljurApp(db: AppDatabase) {
     }
 }
 
+// каркас
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScaffold(
@@ -163,9 +205,13 @@ fun MainScaffold(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var openTelegramTab by rememberSaveable { mutableStateOf(false) }
     var showEljurLoginDialog by rememberSaveable { mutableStateOf(false) }
+    var showEditSchedule by rememberSaveable { mutableStateOf(false) }
 
     BackHandler {
         when {
+            showEditSchedule -> {
+                showEditSchedule = false
+            }
             showSettings -> {
                 showSettings = false
             }
@@ -178,102 +224,117 @@ fun MainScaffold(
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        if (showSettings) "Настройки"
-                        else selectedTab.label
-                    )
-                },
-                navigationIcon = {
-                    if (showSettings) {
-                        IconButton(onClick = { showSettings = false }) {
-                            Icon(
-                                imageVector = Icons.Default.School,
-                                contentDescription = null
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    if (!showSettings) {
-                        IconButton(onClick = {
-                            showSettings = true
-                            openTelegramTab = false
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Настройки"
-                            )
-                        }
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            if (!showSettings) {
-                NavigationBar {
-                    BottomTab.entries.forEach { tab ->
-                        NavigationBarItem(
-                            selected = selectedTab == tab,
-                            onClick = {
-                                selectedTab = tab
-                                openTelegramTab = false
-                            },
-                            icon = {
-                                when (tab) {
-                                    BottomTab.Schedule ->
-                                        Icon(Icons.Default.CalendarToday, contentDescription = null)
-                                    BottomTab.Tasks ->
-                                        Icon(Icons.Default.Assignment, contentDescription = null)
-                                    BottomTab.Attestation ->
-                                        Icon(Icons.Default.School, contentDescription = null)
-                                    BottomTab.Messages ->
-                                        Icon(Icons.Default.ChatBubble, contentDescription = null)
-                                }
-                            },
-                            label = { Text(tab.label) }
+    if (showEditSchedule) {
+        EditScheduleScreen(
+            onBack = { showEditSchedule = false },
+            onSave = {
+                Toast.makeText(context, "Расписание сохранено", Toast.LENGTH_SHORT).show()
+            },
+            db = db
+        )
+    } else {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            if (showSettings) "Настройки"
+                            else selectedTab.label
                         )
+                    },
+                    navigationIcon = {
+                        if (showSettings) {
+                            IconButton(onClick = { showSettings = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = null
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        if (!showSettings) {
+                            IconButton(onClick = {
+                                showSettings = true
+                                openTelegramTab = false
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Настройки"
+                                )
+                            }
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                if (!showSettings && !showEditSchedule) {
+                    NavigationBar {
+                        BottomTab.entries.forEach { tab ->
+                            NavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = {
+                                    selectedTab = tab
+                                    openTelegramTab = false
+                                },
+                                icon = {
+                                    when (tab) {
+                                        BottomTab.Schedule ->
+                                            Icon(Icons.Default.CalendarToday, contentDescription = null)
+                                        BottomTab.Tasks ->
+                                            Icon(Icons.Default.Assignment, contentDescription = null)
+                                        BottomTab.Attestation ->
+                                            Icon(Icons.Default.School, contentDescription = null)
+                                        BottomTab.Messages ->
+                                            Icon(Icons.Default.ChatBubble, contentDescription = null)
+                                    }
+                                },
+                                label = { Text(tab.label) }
+                            )
+                        }
                     }
                 }
             }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            if (showSettings) {
-                SettingsScreen(
-                    isDarkTheme = isDarkTheme,
-                    isEljurLoggedIn = isEljurLoggedIn,
-                    onToggleTheme = onToggleTheme,
-                    onLogoutApp = onLogout,
-                    onNavigateToTelegramAuth = {
-                        showSettings = false
-                        selectedTab = BottomTab.Messages
-                        openTelegramTab = true
-                    },
-                    onShowEljurLogin = {
-                        showEljurLoginDialog = true
-                    },
-                    onEljurLogout = {
-                        onEljurLoginChange(false)
-                    }
-                )
-            } else {
-                when (selectedTab) {
-                    BottomTab.Schedule -> ScheduleScreen(db)
-                    BottomTab.Tasks -> TasksScreen(db)
-                    BottomTab.Attestation -> AttestationsScreen(db)
-                    BottomTab.Messages -> MessagesScreen(
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                if (showSettings) {
+                    SettingsScreen(
                         db = db,
-                        openTelegramTab = openTelegramTab
+                        isDarkTheme = isDarkTheme,
+                        isEljurLoggedIn = isEljurLoggedIn,
+                        onToggleTheme = onToggleTheme,
+                        onLogoutApp = onLogout,
+                        onNavigateToTelegramAuth = {
+                            showSettings = false
+                            selectedTab = BottomTab.Messages
+                            openTelegramTab = true
+                        },
+                        onShowEljurLogin = {
+                            showEljurLoginDialog = true
+                        },
+                        onEljurLogout = {
+                            onEljurLoginChange(false)
+                        },
+                        onEditSchedule = {
+                            showSettings = false
+                            showEditSchedule = true
+                        }
                     )
+                } else {
+                    when (selectedTab) {
+                        BottomTab.Schedule -> ScheduleScreen(db)
+                        BottomTab.Tasks -> TasksScreen(db)
+                        BottomTab.Attestation -> AttestationsScreen(db)
+                        BottomTab.Messages -> MessagesScreen(
+                            db = db,
+                            openTelegramTab = openTelegramTab
+                        )
+                    }
                 }
             }
         }
@@ -293,30 +354,66 @@ fun MainScaffold(
     }
 }
 
-//Экран расписания
-@OptIn(ExperimentalMaterial3Api::class)
+//экран расписания
 @Composable
 fun ScheduleScreen(db: AppDatabase) {
-    val today = remember { todayString() }
-    val tomorrow = remember { tomorrowString() }
+    val context = LocalContext.current
+    val schedulePrefs = remember {
+        context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+    }
 
-    var currentDate by rememberSaveable { mutableStateOf(today) }
+    var currentDate by rememberSaveable {
+        mutableStateOf(
+            schedulePrefs.getString("current_date", todayString()) ?: todayString()
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        val savedDate = schedulePrefs.getString("current_date", null)
+        if (savedDate == null) {
+            schedulePrefs.edit {
+                putString("current_date", todayString())
+            }
+        }
+    }
+
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
 
     val weekDates = remember(currentDate) {
         getWeekDates(currentDate)
     }
 
-    //сейчас ничего не делае пока USE_ELJUR_API = false
-    LaunchedEffect(currentDate) {
-        EljurRemoteDataSource.refreshScheduleForDate(db, currentDate)
-    }
+    val bellSchedule by db.bellScheduleDao().getAll().collectAsState(initial = emptyList())
 
     val lessons by db.scheduleDao()
         .getScheduleForDate(currentDate)
         .collectAsState(initial = emptyList())
 
-    val isTodayOrTomorrow = currentDate == today || currentDate == tomorrow
+    val activeLessons = remember(lessons, bellSchedule) {
+        lessons.filter { lesson ->
+            val bell = bellSchedule.find { it.lessonNumber == lesson.lessonNumber }
+            bell?.isActive == true && lesson.subject.isNotBlank()
+        }.map { lesson ->
+            val bell = bellSchedule.find { it.lessonNumber == lesson.lessonNumber }
+            if (bell != null) {
+                lesson.copy(
+                    startTime = bell.startTime,
+                    endTime = bell.endTime
+                )
+            } else {
+                lesson
+            }
+        }.sortedBy { it.lessonNumber }
+    }
+
+    val hasAnyLessons = remember(lessons) {
+        lessons.any { it.subject.isNotBlank() }
+    }
+
+    val activeLessonNumbers = remember(bellSchedule) {
+        bellSchedule.filter { it.isActive }.map { it.lessonNumber }
+    }
+
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
             initialSelectedDateMillis = dateStringToMillis(currentDate)
@@ -345,12 +442,12 @@ fun ScheduleScreen(db: AppDatabase) {
             DatePicker(state = datePickerState)
         }
     }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-
         WeekSelector(
             weekDates = weekDates,
             currentDate = currentDate,
@@ -420,24 +517,52 @@ fun ScheduleScreen(db: AppDatabase) {
 
         Spacer(Modifier.height(8.dp))
 
-        if (!isTodayOrTomorrow || lessons.isEmpty()) {
+        if (activeLessons.isEmpty()) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "На этот день занятий нет.",
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                if (!hasAnyLessons) {
+                    Text(
+                        text = "На выбранную дату занятий нет",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                } else if (activeLessonNumbers.isEmpty()) {
+                    Text(
+                        text = "Все пары выключены в настройках",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Активных занятий нет",
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = "Проверьте заполнение предметов в шаблонах",
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(lessons) { lesson ->
-                    val showReplacementDemo = lesson.lessonNumber == 3
-
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(activeLessons) { lesson ->
                     LessonCard(
                         lesson = lesson,
-                        showReplacementDemo = showReplacementDemo
+                        showReplacementDemo = false
                     )
                 }
             }
@@ -445,6 +570,7 @@ fun ScheduleScreen(db: AppDatabase) {
     }
 }
 
+// панелька с неделей
 @Composable
 fun WeekSelector(
     weekDates: List<WeekDate>,
@@ -454,7 +580,7 @@ fun WeekSelector(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp), // Уменьшаем высоту
+            .height(60.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -475,6 +601,7 @@ fun WeekSelector(
     }
 }
 
+// день в календаре
 @Composable
 fun WeekDayItem(
     weekDate: WeekDate,
@@ -510,6 +637,7 @@ fun WeekDayItem(
     }
 }
 
+// макеты пар
 @Composable
 fun LessonCard(
     lesson: ScheduleEntity,
@@ -541,14 +669,6 @@ fun LessonCard(
             }
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
-                if (showReplacementDemo) {
-                    Text(
-                        text = "Физика",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    )
-                }
-
                 Text(
                     lesson.subject,
                     style = MaterialTheme.typography.titleSmall
@@ -566,15 +686,15 @@ fun LessonCard(
     }
 }
 
-//Экран заданий
+// экран заданий
 @Composable
 fun TasksScreen(db: AppDatabase) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Привязка К ЭлЖур API
+    // привязка К ЭлЖур API
     LaunchedEffect(Unit) {
-        // Сейчас этот вызов ничего не делает
+        // сейчас этот вызов ничего не делает
         EljurRemoteDataSource.refreshHomeworkForDate(db, todayString())
     }
 
@@ -867,7 +987,7 @@ fun TasksScreen(db: AppDatabase) {
     }
 }
 
-
+// существующее дз
 @Composable
 fun TaskAttachmentsDialog(
     title: String,
@@ -917,6 +1037,7 @@ fun TaskAttachmentsDialog(
     )
 }
 
+// создание дз
 @Composable
 fun AddTaskDialog(
     onAdd: (subject: String, title: String, description: String, dueDate: String) -> Unit,
@@ -1193,6 +1314,7 @@ fun AttestationsScreen(db: AppDatabase) {
     }
 }
 
+// существующие аттестации
 @Composable
 fun AttestationAttachmentsDialog(
     title: String,
@@ -1248,6 +1370,7 @@ fun AttestationAttachmentsDialog(
     )
 }
 
+// создание аттестации
 @Composable
 fun AddAttestationDialog(
     onAdd: (
@@ -1340,7 +1463,7 @@ fun AddAttestationDialog(
     )
 }
 
-//Экран сообщений
+//экран сообщений
 @Composable
 fun MessagesScreen(
     db: AppDatabase,
@@ -1374,6 +1497,7 @@ fun MessagesScreen(
     }
 }
 
+// таб эж
 @Composable
 fun EljurMessagesTab(db: AppDatabase) {
     val messages by db.eljurMessageDao().getAll().collectAsState(initial = emptyList())
@@ -1398,6 +1522,7 @@ fun EljurMessagesTab(db: AppDatabase) {
     }
 }
 
+// таб тг
 @Composable
 fun TelegramMessagesTab() {
     var phone by rememberSaveable { mutableStateOf("") }
@@ -1509,7 +1634,7 @@ fun TelegramMessagesTab() {
                         text = if (isAuthorized) "Статус: авторизован"
                         else "Статус: не авторизован",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1582,6 +1707,7 @@ fun TelegramMessagesTab() {
     }
 }
 
+// таб заметок
 @Composable
 fun NotesTab(db: AppDatabase) {
     val notes by db.noteDao().getAll().collectAsState(initial = emptyList())
@@ -1674,28 +1800,28 @@ fun NotesTab(db: AppDatabase) {
     }
 }
 
-//Экран настроек
+//экран настроек
 @Composable
 fun SettingsScreen(
+    db: AppDatabase,
     isDarkTheme: Boolean,
     isEljurLoggedIn: Boolean,
     onToggleTheme: () -> Unit,
     onLogoutApp: () -> Unit,
     onNavigateToTelegramAuth: () -> Unit,
     onShowEljurLogin: () -> Unit,
-    onEljurLogout: () -> Unit
+    onEljurLogout: () -> Unit,
+    onEditSchedule: () -> Unit
 ) {
     val context = LocalContext.current
     val telegramAuthorized = remember { mutableStateOf(TelegramService.isAuthorized()) }
+    val scope = rememberCoroutineScope()
 
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var channelUsername by rememberSaveable {
         mutableStateOf(prefs.getString(KEY_TELEGRAM_CHANNEL, "") ?: "")
     }
     var showChannelDialog by rememberSaveable { mutableStateOf(false) }
-
-    var showManualScheduleDialog by rememberSaveable { mutableStateOf(false) }
-
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1748,6 +1874,7 @@ fun SettingsScreen(
                 }
             )
         }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -1760,7 +1887,7 @@ fun SettingsScreen(
                     )
                 },
                 supportingContent = {
-                    Text("Укажите username канала в телеграмме (без @) или оставьте пустым для избранного")
+                    Text("Укажите username канала в телеграмме (без @) или оставьте пустым для чтения избранного")
                 },
                 leadingContent = {
                     Icon(
@@ -1788,7 +1915,7 @@ fun SettingsScreen(
                         if (telegramAuthorized.value)
                             "Связка с Telegram используется для чтения избранных сообщений."
                         else
-                            "Нажмите чтобы подключить Telegram и читать избранные сообщения."
+                            "Нажмите чтобы подключить Telegram"
                     )
                 },
                 leadingContent = {
@@ -1838,6 +1965,65 @@ fun SettingsScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             ListItem(
+                headlineContent = { Text("Редактировать расписание") },
+                supportingContent = {
+                    Text("Настроить расписание звонков и занятий")
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.EditCalendar,
+                        contentDescription = null
+                    )
+                },
+                modifier = Modifier.clickable { onEditSchedule() }
+            )
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            ListItem(
+                headlineContent = { Text("Очистить расписание") },
+                supportingContent = {
+                    Text("Удалить записанное расписание")
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch {
+                       val allLessons = db.scheduleDao().getAllGenerated().firstOrNull() ?: emptyList()
+                        allLessons.forEach { lesson ->
+                            if (lesson.date.isNotBlank()) {
+                                db.scheduleDao().clearForDate(lesson.date)
+                            }
+                        }
+
+                        val evenTemplate = db.scheduleDao().getTemplateByParity("even").firstOrNull() ?: emptyList()
+                        val oddTemplate = db.scheduleDao().getTemplateByParity("odd").firstOrNull() ?: emptyList()
+
+                        if (evenTemplate.isEmpty()) {
+                            db.scheduleDao().clearTemplateByParity("even")
+                        }
+                        if (oddTemplate.isEmpty()) {
+                            db.scheduleDao().clearTemplateByParity("odd")
+                        }
+
+                        Toast.makeText(context, "Сгенерированные занятия очищены", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            ListItem(
                 headlineContent = { Text("Выйти из приложения") },
                 leadingContent = {
                     Icon(
@@ -1856,7 +2042,7 @@ fun SettingsScreen(
             title = { Text("Настройка канала Telegram") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Введите username канала (без @) или оставьте пустым для чтения избранного")
+                    Text("Введите username публичного канала (без @) или оставьте пустым для чтения избранного")
                     OutlinedTextField(
                         value = channelUsername,
                         onValueChange = { channelUsername = it },
@@ -1895,6 +2081,525 @@ fun SettingsScreen(
     }
 }
 
+// конструктор расписаний
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditScheduleScreen(
+    onBack: () -> Unit,
+    onSave: () -> Unit,
+    db: AppDatabase
+) {
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    val tabs = listOf("Звонки", "Четная неделя", "Нечетная неделя")
+
+    var hasUnsavedWeekChanges by rememberSaveable { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+            }
+
+            Text(
+                "Редактирование расписания",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            if (selectedTab > 0 && hasUnsavedWeekChanges) {
+                IconButton(
+                    onClick = {
+                        hasUnsavedWeekChanges = false
+                        onSave()
+                    }
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = "Сохранить")
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        TabRow(selectedTabIndex = selectedTab) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(title) }
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        when (selectedTab) {
+            0 -> BellScheduleTab(db = db)
+            1 -> WeekScheduleTab(
+                parity = "even",
+                db = db,
+                onHasChanges = { hasChanges -> hasUnsavedWeekChanges = hasChanges }
+            )
+            2 -> WeekScheduleTab(
+                parity = "odd",
+                db = db,
+                onHasChanges = { hasChanges -> hasUnsavedWeekChanges = hasChanges }
+            )
+        }
+    }
+}
+
+// таб расписание звонков
+@Composable
+fun BellScheduleTab(
+    db: AppDatabase
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val bellScheduleFlow = db.bellScheduleDao().getAll()
+    val bellSchedule by bellScheduleFlow.collectAsState(initial = emptyList())
+
+    val lessons = rememberSaveable {
+        mutableStateListOf<BellScheduleEntity>()
+    }
+
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+
+    LaunchedEffect(bellSchedule) {
+        if (bellSchedule.isNotEmpty()) {
+            lessons.clear()
+            lessons.addAll(bellSchedule.sortedBy { it.lessonNumber })
+        } else {
+            val defaultLessons = (1..8).map { number ->
+                BellScheduleEntity(
+                    lessonNumber = number,
+                    startTime = String.format("%02d:00", 8 + (number - 1) * 2),
+                    endTime = String.format("%02d:50", 8 + (number - 1) * 2),
+                    isActive = number <= 6
+                )
+            }
+            lessons.clear()
+            lessons.addAll(defaultLessons)
+        }
+    }
+
+    // Функция для автосохранения изменений с задержкой
+    fun saveChangesAuto(updatedLesson: BellScheduleEntity?) {
+        debounceJob?.cancel()
+        debounceJob = scope.launch {
+            delay(500) //
+            val sortedLessons = lessons.sortedBy { it.lessonNumber }
+            db.bellScheduleDao().clearAll()
+            db.bellScheduleDao().insertAll(sortedLessons)
+
+            updateTemplatesWithNewTimes(db, sortedLessons)
+            regenerateFullSchedule(db)
+        }
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (lessonNumber in 1..8) {
+            item {
+                val lesson = lessons.find { it.lessonNumber == lessonNumber }
+                    ?: BellScheduleEntity(
+                        lessonNumber = lessonNumber,
+                        startTime = String.format("%02d:00", 8 + (lessonNumber - 1) * 2),
+                        endTime = String.format("%02d:50", 8 + (lessonNumber - 1) * 2),
+                        isActive = lessonNumber <= 6
+                    ).also { newLesson ->
+                        lessons.add(newLesson)
+                    }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    colors = CardDefaults.cardColors(
+                        // Можно сделать визуальную разницу для неактивных
+                        containerColor = if (lesson.isActive)
+                            MaterialTheme.colorScheme.surface
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Пара $lessonNumber",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Switch(
+                                checked = lesson.isActive,
+                                onCheckedChange = { checked ->
+                                    val index = lessons.indexOf(lesson)
+                                    if (index >= 0) {
+                                        val updatedLesson = lesson.copy(isActive = checked)
+                                        lessons[index] = updatedLesson
+                                        saveChangesAuto(updatedLesson)
+                                    }
+                                }
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Начало", style = MaterialTheme.typography.bodySmall)
+                                TimeInputField(
+                                    time = lesson.startTime,
+                                    onTimeChange = { newTime ->
+                                        val index = lessons.indexOf(lesson)
+                                        if (index >= 0) {
+                                            val updatedLesson = lesson.copy(startTime = newTime)
+                                            lessons[index] = updatedLesson
+                                            saveChangesAuto(updatedLesson)
+                                        }
+                                    }
+                                )
+                            }
+
+                            Text("—", style = MaterialTheme.typography.titleMedium)
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Конец", style = MaterialTheme.typography.bodySmall)
+                                TimeInputField(
+                                    time = lesson.endTime,
+                                    onTimeChange = { newTime ->
+                                        val index = lessons.indexOf(lesson)
+                                        if (index >= 0) {
+                                            val updatedLesson = lesson.copy(endTime = newTime)
+                                            lessons[index] = updatedLesson
+                                            saveChangesAuto(updatedLesson)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    LaunchedEffect(debounceJob) {
+        if (debounceJob != null) {
+            Toast.makeText(context, "Расписание звонков сохранено", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+// часы для расписания звонков
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TimeInputField(time: String, onTimeChange: (String) -> Unit) {
+    var showTimePicker by rememberSaveable { mutableStateOf(false) }
+    var selectedHour by rememberSaveable { mutableIntStateOf(0) }
+    var selectedMinute by rememberSaveable { mutableIntStateOf(0) }
+
+    LaunchedEffect(time) {
+        val parts = time.split(":")
+        if (parts.size == 2) {
+            selectedHour = parts[0].toIntOrNull() ?: 8
+            selectedMinute = parts[1].toIntOrNull() ?: 0
+        }
+    }
+
+    TextButton(
+        onClick = { showTimePicker = true }
+    ) {
+        Text(time, style = MaterialTheme.typography.titleMedium)
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = selectedHour,
+            initialMinute = selectedMinute,
+            is24Hour = true
+        )
+
+        TimePickerDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newTime = String.format("%02d:%02d", timePickerState.hour, timePickerState.minute)
+                        onTimeChange(newTime)
+                        showTimePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("Отмена")
+                }
+            },
+            title = { Text("Выберите время") }
+        ) {
+            TimePicker(state = timePickerState)
+        }
+    }
+}
+
+// таб заполненения расписания
+@Composable
+fun WeekScheduleTab(
+    parity: String,
+    db: AppDatabase,
+    onHasChanges: (Boolean) -> Unit = {}
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val bellSchedule by db.bellScheduleDao().getAll().collectAsState(initial = emptyList())
+    val existingTemplate by db.scheduleDao().getTemplateByParity(parity).collectAsState(emptyList())
+
+    val templateMap = remember(existingTemplate) {
+        mutableStateMapOf<String, MutableList<ScheduleEntity>>()
+    }
+
+    LaunchedEffect(existingTemplate, bellSchedule) {
+        templateMap.clear()
+        val daysOfWeek = listOf(
+            "Понедельник" to 1,
+            "Вторник" to 2,
+            "Среда" to 3,
+            "Четверг" to 4,
+            "Пятница" to 5,
+            "Суббота" to 6
+        )
+
+        daysOfWeek.forEach { (day, dayNumber) ->
+            val allDayLessons = existingTemplate.filter { it.dayOfWeek == dayNumber }
+            val dayLessons = mutableListOf<ScheduleEntity>()
+
+            allDayLessons.forEach { existingLesson ->
+                dayLessons.add(existingLesson)
+            }
+
+            for (lessonNum in 1..8) {
+                if (!dayLessons.any { it.lessonNumber == lessonNum }) {
+                    val bell = bellSchedule.find { it.lessonNumber == lessonNum }
+
+                    dayLessons.add(
+                        ScheduleEntity(
+                            date = "",
+                            lessonNumber = lessonNum,
+                            subject = "",
+                            teacher = "",
+                            room = "",
+                            startTime = bell?.startTime ?: "08:00",
+                            endTime = bell?.endTime ?: "09:30",
+                            weekParity = parity,
+                            dayOfWeek = dayNumber,
+                            isReplacement = false
+                        )
+                    )
+                }
+            }
+
+            templateMap[day] = dayLessons.sortedBy { it.lessonNumber }.toMutableList()
+        }
+    }
+
+    val daysOfWeek = listOf(
+        "Понедельник" to 1,
+        "Вторник" to 2,
+        "Среда" to 3,
+        "Четверг" to 4,
+        "Пятница" to 5,
+        "Суббота" to 6
+    )
+
+    var hasUnsavedChanges by rememberSaveable { mutableStateOf(false) }
+
+    fun saveChangesManual() {
+        scope.launch {
+            db.scheduleDao().clearTemplateByParity(parity)
+
+            val allLessons = templateMap.flatMap { (_, lessons) -> lessons }
+                .filter { lesson -> true }
+
+            if (allLessons.isNotEmpty()) {
+                db.scheduleDao().insertAll(allLessons)
+            }
+
+            regenerateFullSchedule(db)
+
+            hasUnsavedChanges = false
+            Toast.makeText(context, "Расписание сохранено", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (hasUnsavedChanges) {
+            Button(
+                onClick = { saveChangesManual() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text("Сохранить изменения")
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(daysOfWeek) { (dayName, dayNumber) ->
+                val dayLessons = templateMap[dayName] ?: mutableListOf()
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            dayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
+                        dayLessons
+                            .filter { lesson ->
+                                val bell = bellSchedule.find { it.lessonNumber == lesson.lessonNumber }
+                                bell?.isActive == true
+                            }
+                            .forEach { lesson ->
+                                LessonInputRow(
+                                    dayNumber = dayNumber,
+                                    lessonNumber = lesson.lessonNumber,
+                                    timeRange = "${lesson.startTime}-${lesson.endTime}",
+                                    initialSubject = lesson.subject,
+                                    initialTeacher = lesson.teacher,
+                                    initialRoom = lesson.room,
+                                    onLessonChange = { subject, teacher, room ->
+                                        val newDayLessons = dayLessons.toMutableList()
+                                        val index = newDayLessons.indexOfFirst { it.lessonNumber == lesson.lessonNumber }
+                                        val newLesson = lesson.copy(
+                                            subject = subject,
+                                            teacher = teacher,
+                                            room = room
+                                        )
+
+                                        if (index >= 0) {
+                                            newDayLessons[index] = newLesson
+                                        }
+
+                                        templateMap[dayName] = newDayLessons
+                                        hasUnsavedChanges = true
+                                    }
+                                )
+                            }
+                    }
+                }
+            }
+        }
+    }
+}
+
+//редакция 1 пары
+@Composable
+fun LessonInputRow(
+    dayNumber: Int,
+    lessonNumber: Int,
+    timeRange: String,
+    initialSubject: String,
+    initialTeacher: String,
+    initialRoom: String,
+    onLessonChange: (subject: String, teacher: String, room: String) -> Unit
+) {
+    var subject by rememberSaveable { mutableStateOf(initialSubject) }
+    var teacher by rememberSaveable { mutableStateOf(initialTeacher) }
+    var room by rememberSaveable { mutableStateOf(initialRoom) }
+
+    LaunchedEffect(subject, teacher, room) {
+        if (subject != initialSubject || teacher != initialTeacher || room != initialRoom) {
+            onLessonChange(subject, teacher, room)
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.width(100.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Text(
+                        "$lessonNumber. $timeRange",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    OutlinedTextField(
+                        value = subject,
+                        onValueChange = { subject = it },
+                        label = { Text("Предмет") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedTextField(
+                            value = teacher,
+                            onValueChange = { teacher = it },
+                            label = { Text("Преподаватель") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+
+                        OutlinedTextField(
+                            value = room,
+                            onValueChange = { room = it },
+                            label = { Text("Кабинет") },
+                            singleLine = true,
+                            modifier = Modifier.width(80.dp),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// экран авторизация элжура
 @Composable
 fun EljurLoginDialog(
     onLogin: (login: String, password: String) -> Unit,
@@ -2012,16 +2717,102 @@ fun EljurLoginDialog(
     )
 }
 
+private suspend fun regenerateFullSchedule(db: AppDatabase) {
+    val bellSchedule = db.bellScheduleDao().getAll().firstOrNull() ?: emptyList()
+    val evenTemplate = db.scheduleDao().getTemplateByParity("even").firstOrNull() ?: emptyList()
+    val oddTemplate = db.scheduleDao().getTemplateByParity("odd").firstOrNull() ?: emptyList()
+
+    if (evenTemplate.isEmpty() && oddTemplate.isEmpty()) {
+        return
+    }
+
+    val calendar = Calendar.getInstance()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    // Генерируем расписание на 8 недель вперед (2 месяца)
+    for (weekOffset in -4..4) {
+        calendar.time = Date()
+        calendar.add(Calendar.WEEK_OF_YEAR, weekOffset)
+
+        // Устанавливаем на понедельник этой недели
+        calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+
+        // Проходим по всем дням недели
+        for (dayOffset in 0..5) { // Пн-Сб
+            val currentCalendar = calendar.clone() as Calendar
+            currentCalendar.add(Calendar.DAY_OF_YEAR, dayOffset)
+
+            val date = sdf.format(currentCalendar.time)
+
+            val weekParity = if (currentCalendar.get(Calendar.WEEK_OF_YEAR) % 2 == 0) "even" else "odd"
+            val dayOfWeek = dayOffset + 1 // 1-Пн, 2-Вт, ..., 6-Сб
+
+            val template = if (weekParity == "even") evenTemplate else oddTemplate
+            val dayLessons = template.filter { it.dayOfWeek == dayOfWeek }
+
+            // Сначала удаляем старые занятия на этот день
+            db.scheduleDao().clearForDate(date)
+
+            // Добавляем только активные занятия
+            dayLessons.forEach { templateLesson ->
+                // Проверяем, активна ли эта пара в расписании звонков
+                val bell = bellSchedule.find {
+                    it.lessonNumber == templateLesson.lessonNumber && it.isActive
+                }
+
+                // Урок должен быть активным И иметь заполненный предмет
+                if (bell != null && templateLesson.subject.isNotBlank()) {
+                    val lesson = ScheduleEntity(
+                        date = date,
+                        lessonNumber = templateLesson.lessonNumber,
+                        subject = templateLesson.subject,
+                        teacher = templateLesson.teacher,
+                        room = templateLesson.room,
+                        startTime = bell.startTime,
+                        endTime = bell.endTime,
+                        weekParity = weekParity,
+                        dayOfWeek = dayOfWeek,
+                        isReplacement = false
+                    )
+                    db.scheduleDao().insert(lesson)
+                }
+            }
+        }
+    }
+}
+
+private suspend fun updateTemplatesWithNewTimes(db: AppDatabase, bellSchedule: List<BellScheduleEntity>) {
+    // Обновляем время в шаблонах для четной и нечетной недель
+    val parities = listOf("even", "odd")
+
+    for (parity in parities) {
+        val templates = db.scheduleDao().getTemplateByParity(parity).firstOrNull() ?: continue
+
+        // Создаем новые шаблоны с обновленным временем
+        val updatedTemplates = templates.map { template ->
+            val bell = bellSchedule.find { it.lessonNumber == template.lessonNumber }
+            if (bell != null) {
+                // Сохраняем урок, даже если пара неактивна
+                template.copy(
+                    startTime = bell.startTime,
+                    endTime = bell.endTime
+                )
+            } else {
+                template
+            }
+        }
+
+        // Сохраняем обновленные шаблоны
+        db.scheduleDao().clearTemplateByParity(parity)
+        if (updatedTemplates.isNotEmpty()) {
+            db.scheduleDao().insertAll(updatedTemplates)
+        }
+    }
+}
+
 private fun todayString(): String {
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     return sdf.format(Date())
-}
-
-private fun tomorrowString(): String {
-    val cal = Calendar.getInstance()
-    cal.add(Calendar.DAY_OF_YEAR, 1)
-    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    return sdf.format(cal.time)
 }
 
 private fun formatDateHuman(dateStr: String): String {
@@ -2117,4 +2908,61 @@ private fun getWeekDates(selectedDate: String): List<WeekDate> {
     }
 
     return dates
+}
+
+private suspend fun generateScheduleFromTemplates(db: AppDatabase) {
+    val bellSchedule = db.bellScheduleDao().getAll().firstOrNull() ?: emptyList()
+    val evenTemplate = db.scheduleDao().getTemplateByParity("even").firstOrNull() ?: emptyList()
+    val oddTemplate = db.scheduleDao().getTemplateByParity("odd").firstOrNull() ?: emptyList()
+
+    if (evenTemplate.isEmpty() && oddTemplate.isEmpty()) {
+        return
+    }
+
+    val calendar = Calendar.getInstance()
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    val allDates = mutableListOf<String>()
+
+    for (weekOffset in 0..12) {
+        calendar.time = Date()
+        calendar.add(Calendar.WEEK_OF_YEAR, weekOffset)
+
+        calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+
+        for (dayOffset in 0..12) {
+            val currentCalendar = calendar.clone() as Calendar
+            currentCalendar.add(Calendar.DAY_OF_YEAR, dayOffset)
+
+            val date = sdf.format(currentCalendar.time)
+            allDates.add(date)
+
+            val weekParity = if (currentCalendar.get(Calendar.WEEK_OF_YEAR) % 2 == 0) "even" else "odd"
+            val dayOfWeek = dayOffset + 1
+
+            val template = if (weekParity == "even") evenTemplate else oddTemplate
+            val dayLessons = template.filter { it.dayOfWeek == dayOfWeek }
+
+            db.scheduleDao().clearForDate(date)
+
+            dayLessons.forEach { templateLesson ->
+                val bell = bellSchedule.find { it.lessonNumber == templateLesson.lessonNumber && it.isActive }
+                if (bell != null) {
+                    val lesson = ScheduleEntity(
+                        date = date,
+                        lessonNumber = templateLesson.lessonNumber,
+                        subject = templateLesson.subject,
+                        teacher = templateLesson.teacher,
+                        room = templateLesson.room,
+                        startTime = bell.startTime,
+                        endTime = bell.endTime,
+                        weekParity = weekParity,
+                        dayOfWeek = dayOfWeek,
+                        isReplacement = false
+                    )
+                    db.scheduleDao().insert(lesson)
+                }
+            }
+        }
+    }
 }

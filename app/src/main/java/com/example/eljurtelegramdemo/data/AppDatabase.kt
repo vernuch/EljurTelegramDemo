@@ -11,7 +11,6 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -24,7 +23,12 @@ data class ScheduleEntity(
     val teacher: String,
     val room: String,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    val weekParity: String = "any",
+    val dayOfWeek: Int = 0,
+    val isReplacement: Boolean = false,
+    val originalSubject: String? = null,
+    val replacementDate: String? = null
 )
 
 @Dao
@@ -32,13 +36,73 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedule WHERE date = :date ORDER BY lessonNumber")
     fun getScheduleForDate(date: String): Flow<List<ScheduleEntity>>
 
+    @Query("SELECT * FROM schedule WHERE date = :date AND isReplacement = 0 ORDER BY lessonNumber")
+    fun getRegularScheduleForDate(date: String): Flow<List<ScheduleEntity>>
+
+    @Query("SELECT * FROM schedule WHERE weekParity = :parity AND isReplacement = 0 ORDER BY date, lessonNumber")
+    fun getScheduleByParity(parity: String): Flow<List<ScheduleEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<ScheduleEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(item: ScheduleEntity)
 
     @Query("SELECT COUNT(*) FROM schedule")
     suspend fun count(): Int
 
+    @Query("SELECT * FROM schedule WHERE date != '' AND date IS NOT NULL")
+    fun getAllGenerated(): Flow<List<ScheduleEntity>>
+
+    @Query("DELETE FROM schedule WHERE subject = '' OR subject IS NULL")
+    suspend fun deleteEmptyLessons()
+
+    @Query("SELECT * FROM schedule WHERE date = ''")
+    suspend fun getAllTemplates(): List<ScheduleEntity>
+
     @Query("DELETE FROM schedule")
+    suspend fun clearAll()
+
+    @Query("DELETE FROM schedule WHERE date = :date")
+    suspend fun clearForDate(date: String)
+
+    @Query("DELETE FROM schedule WHERE weekParity = :parity AND isReplacement = 0")
+    suspend fun clearByParity(parity: String)
+
+    @Query("SELECT * FROM schedule WHERE replacementDate = :date AND isReplacement = 1")
+    fun getReplacementsForDate(date: String): Flow<List<ScheduleEntity>>
+
+    @Query("DELETE FROM schedule WHERE isReplacement = 1 AND (replacementDate = :date OR replacementDate IS NULL)")
+    suspend fun clearReplacementsForDate(date: String)
+
+    @Query("SELECT * FROM schedule WHERE weekParity = :parity AND date = '' ORDER BY dayOfWeek, lessonNumber")
+    fun getTemplateByParity(parity: String): Flow<List<ScheduleEntity>>
+
+    @Query("DELETE FROM schedule WHERE weekParity = :parity AND date = ''")
+    suspend fun clearTemplateByParity(parity: String)
+
+    @Query("SELECT COUNT(*) FROM schedule")
+    suspend fun getCount(): Int
+}
+
+@Entity(tableName = "bell_schedule")
+data class BellScheduleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val lessonNumber: Int,
+    val startTime: String,
+    val endTime: String,
+    val isActive: Boolean = true
+)
+
+@Dao
+interface BellScheduleDao {
+    @Query("SELECT * FROM bell_schedule WHERE isActive = 1 ORDER BY lessonNumber")
+    fun getAll(): Flow<List<BellScheduleEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<BellScheduleEntity>)
+
+    @Query("DELETE FROM bell_schedule")
     suspend fun clearAll()
 }
 
@@ -198,9 +262,6 @@ interface AttestationAttachmentDao {
     suspend fun deleteForAttestation(attestationId: Long)
 }
 
-
-
-
 @Database(
     entities = [
         ScheduleEntity::class,
@@ -209,13 +270,15 @@ interface AttestationAttachmentDao {
         EljurMessageEntity::class,
         NoteEntity::class,
         TaskAttachmentEntity::class,
-        AttestationAttachmentEntity::class
+        AttestationAttachmentEntity::class,
+        BellScheduleEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun scheduleDao(): ScheduleDao
+    abstract fun bellScheduleDao(): BellScheduleDao
     abstract fun taskDao(): TaskDao
     abstract fun attestationDao(): AttestationDao
     abstract fun eljurMessageDao(): EljurMessageDao
@@ -227,69 +290,9 @@ abstract class AppDatabase : RoomDatabase() {
 object DemoDataInitializer {
 
     suspend fun ensureDemoData(db: AppDatabase) {
-        seedSchedule(db)
         seedMessages(db)
     }
 
-    private suspend fun seedSchedule(db: AppDatabase) {
-        val dao = db.scheduleDao()
-        dao.clearAll()
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val todayDate = Date()
-        val today = sdf.format(todayDate)
-        val cal = Calendar.getInstance()
-        cal.time = todayDate
-        cal.add(Calendar.DAY_OF_YEAR, 1)
-        val tomorrow = sdf.format(cal.time)
-        val lessons = listOf(
-            ScheduleEntity(
-                date = today,
-                lessonNumber = 1,
-                subject = "Математика",
-                teacher = "Иванова И.И.",
-                room = "201",
-                startTime = "08:20",
-                endTime = "09:50"
-            ),
-            ScheduleEntity(
-                date = today,
-                lessonNumber = 2,
-                subject = "Русский язык",
-                teacher = "Петрова А.А.",
-                room = "203",
-                startTime = "10:00",
-                endTime = "11:30"
-            ),
-            ScheduleEntity(
-                date = today,
-                lessonNumber = 3,
-                subject = "Информатика",
-                teacher = "Сидоров В.В.",
-                room = "305",
-                startTime = "11:40",
-                endTime = "13:10"
-            ),
-            ScheduleEntity(
-                date = tomorrow,
-                lessonNumber = 1,
-                subject = "Физика",
-                teacher = "Кузнецов К.К.",
-                room = "210",
-                startTime = "08:20",
-                endTime = "09:50"
-            ),
-            ScheduleEntity(
-                date = tomorrow,
-                lessonNumber = 2,
-                subject = "Английский язык",
-                teacher = "Смирнова Е.Е.",
-                room = "204",
-                startTime = "10:00",
-                endTime = "11:30"
-            )
-        )
-        dao.insertAll(lessons)
-    }
 
     private suspend fun seedMessages(db: AppDatabase) {
         val dao = db.eljurMessageDao()
